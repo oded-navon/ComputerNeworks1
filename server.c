@@ -23,17 +23,18 @@
 
 typedef struct EMAIL
 {
-	int index;	
+	int ID;	
 	char from[MAX_CONTENT];
 	char to[MAX_CONTENT];
 	char subject[MAX_CONTENT];
-	char text[MAX_CONTENT];
+	char content[MAX_CONTENT];
 }email;
 
 typedef struct USERDB
 {
 	char name[MAX_USERNAME];
 	char password[MAX_PASSWORD];
+	int numOfEmails;
 	email emails[MAXMAILS];
 }userDB;
 
@@ -41,10 +42,10 @@ int getUserIndexInDB(userDB* userdb,int userCnt,char* username);
 bool onlyNumbers(char* s);
 int sendall (int s, char *buf , int *len);
 bool validateUserCred(char* filePath,char* userCred);
-userDB* parseUserDB(char* filePath, int* userCnt);
-int countUsers(char* filePath);
-char* printEmails(char* username, int userIndexInDB, int clientSocket, userDB* userdb);
-
+userDB* parseUserDB(char** filePath, int* userCnt);
+int countUsers(char** filePath);
+void printEmails(char* username, int userIndexInDB, int clientSocket, userDB* userdb);
+void printEmailById(int emailId, char* username, int userIndexInDB, int clientSocket, userDB* userdb);
 
 
 int main(int argc, char** argv) {
@@ -54,15 +55,16 @@ int main(int argc, char** argv) {
 		printf("Incorrect parameters, try again.\n");
 		return -1;
 	}
-
+	printf("Print 0\n");
 	if (argc==3 && !onlyNumbers(argv[2]))
 	{
 		printf("Incorrect port number, try again.\n");
 		return -1;
 	}
-	int* userCount;
-	userDB* userdb = parseUserDB(argv[1],userCount);
-
+printf("Print 1\n");
+	int* userCount = (int*)malloc(sizeof(int));
+	userDB* userdb = parseUserDB(&argv[1],userCount);
+	printf("Print 1.5\n");
 	int serverSocket = socket(PF_INET,SOCK_STREAM,0);
 	if (serverSocket <0)
 	{
@@ -80,7 +82,7 @@ int main(int argc, char** argv) {
 	{
 		sockAddr.sin_port = htons(DEFAULT_PORT);
 	}
-
+	printf("Print 2\n");
 	//sockAddr.sin_addr = htonl(0x8443FC64);
 
 	inet_aton("127.0.0.1", &sockAddr.sin_addr);
@@ -98,17 +100,18 @@ int main(int argc, char** argv) {
 		printf("Error listening to socket: %s\n",strerror(errno));
 		return -1;
 	}
-
+printf("Print 3\n");
 	struct sockaddr_in clientAddr ={0};
 	const char delim[2] = " ";
 	const char delimTab[2] = "\t";
 
 
 	int clientLen = sizeof(sockAddr);	
-
+printf("Print 4\n");
 	while(1)
 	{
 int clientSocket = accept(serverSocket,(struct sockaddr*) &clientAddr, &clientLen);
+printf("Print 4.5\n");
 		if (clientSocket <0)
 		{
 		printf("Error accepting client socket: %s\n",strerror(errno));
@@ -116,7 +119,7 @@ int clientSocket = accept(serverSocket,(struct sockaddr*) &clientAddr, &clientLe
 		}
 		int* lenSent;
 		sendall(clientSocket,"Hey! I'm the coolest email server.",lenSent);
-
+printf("Print 5\n");
 		int retries = 5;
 		char userCred[MAX_USERNAME+MAX_PASSWORD];
 		char username[MAX_USERNAME];
@@ -167,7 +170,8 @@ int clientSocket = accept(serverSocket,(struct sockaddr*) &clientAddr, &clientLe
 			}
 			else if(strcmp(userCmd,"GET_MAIL"))
 			{
-
+				int emailId = atoi(strtok(msg, delim));
+				printEmailById(emailId,username,getUserIndexInDB(userdb,*userCount,username),clientSocket,userdb);
 			}
 			else if(strcmp(userCmd,"DELETE_MAIL"))
 			{
@@ -189,7 +193,7 @@ int clientSocket = accept(serverSocket,(struct sockaddr*) &clientAddr, &clientLe
 		close(clientSocket);
 
 	}
-
+	free(userCount);
 	close(serverSocket);
 	return 0;
 }
@@ -248,24 +252,28 @@ bool validateUserCred(char* filePath,char* userCred)
 	return false;
 }
 
-userDB* parseUserDB(char* filePath, int* userCnt)
+userDB* parseUserDB(char** filePath, int* userCnt)
 {
 	int userCount = countUsers(filePath);
+	printf("Print 1.1\n");
 	*userCnt = userCount;
+	printf("Print 1.15\n");
 	userDB* userdb = (userDB*)malloc(sizeof(userDB)*userCount);
-
-	FILE* file = fopen(filePath,"r");
+	printf("Print 1.2\n");
+	FILE* file = fopen(*filePath,"r");
 	if (file == NULL)
 	{
 		printf("Error on opening username file: %s\n",strerror(errno));
 		return NULL;
 	}
-
+	printf("Print 1.25\n");
 	char line[MAX_LEN];
 	const char delim[2] = "\t";
 	char *userCmd;
+	printf("Print 1.3\n");
 	while(fgets(line, MAX_LEN, file) != NULL)
 	{
+		printf("Print 1.3\n");		
 		userDB* localDB = (userDB*) malloc(sizeof(userDB));
 		strcpy(localDB->name, strtok(line, delim));
 		strcpy(localDB->password, strtok(line, delim));
@@ -274,9 +282,9 @@ userDB* parseUserDB(char* filePath, int* userCnt)
 	return userdb;
 }
 
-int countUsers(char* filePath)
+int countUsers(char** filePath)
 {
-	FILE* file = fopen(filePath,"r");
+	FILE* file = fopen(*filePath,"r");
 	if (file == NULL)
 	{
 		printf("Error on opening username file: %s\n",strerror(errno));
@@ -294,7 +302,7 @@ int countUsers(char* filePath)
 
 }
 
-char* printEmails(char* username, int userIndexInDB, int clientSocket, userDB* userdb)
+void printEmails(char* username, int userIndexInDB, int clientSocket, userDB* userdb)
 {
 	char emailLine[MAX_SUBJECT+MAX_USERNAME+10];
 	char emailNum[10];
@@ -311,9 +319,43 @@ char* printEmails(char* username, int userIndexInDB, int clientSocket, userDB* u
 		sprintf(emailLine,"%s\t%s \"%s\"",emailNum, emailUsername, emailSubject);
 		sendall(clientSocket,emailLine,lenSent);
 	}
-
-
 }
+
+void printEmailById(int emailId, char* username, int userIndexInDB, int clientSocket, userDB* userdb)
+{
+	char emailLine[MAX_CONTENT+MAX_USERNAME*TOTAL_TO+MAX_SUBJECT+MAX_USERNAME+10];
+	
+	char emailUsername[MAX_USERNAME];
+	char emailSubject[MAX_SUBJECT];
+	char emailTo[MAX_USERNAME*TOTAL_TO];
+	char emailContent[MAX_CONTENT];
+	
+	email* userEmails = userdb[userIndexInDB].emails;
+	int* lenSent;
+	
+	
+	
+	for (int i ; i<MAXMAILS; i++)
+	{
+		if (userEmails[i].ID == emailId)
+		{
+		
+		sprintf(emailUsername,"From: %s\n",userEmails[i].from);
+		sprintf(emailTo,"To: %s\n",userEmails[i].to);
+		sprintf(emailSubject,"Subject: %s\n",userEmails[i].subject);
+		sprintf(emailContent,"Content: %s\n",userEmails[i].content);
+		
+		sprintf(emailLine,"%s%s%s%s",emailUsername,emailTo,emailSubject,emailContent);
+		
+		sendall(clientSocket,emailLine,lenSent);
+		
+		break;	
+		}
+		
+		
+	}
+}
+
 
 int getUserIndexInDB(userDB* userdb,int userCnt,char* username)
 {
