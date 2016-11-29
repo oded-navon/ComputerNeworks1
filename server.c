@@ -23,7 +23,7 @@
 
 typedef struct EMAIL
 {
-	int ID;	
+	//int ID;
 	char from[MAX_CONTENT];
 	char to[MAX_CONTENT];
 	char subject[MAX_CONTENT];
@@ -41,12 +41,14 @@ typedef struct USERDB
 int getUserIndexInDB(userDB* userdb,int userCnt,char* username);
 bool onlyNumbers(char* s);
 int sendall (int s, char *buf , int *len);
+int recvall(int s, char *buf, int *len);
 bool validateUserCred(char* filePath,char* userCred);
 userDB* parseUserDB(char** filePath, int* userCnt);
 int countUsers(char** filePath);
 void printEmails(char* username, int userIndexInDB, int clientSocket, userDB* userdb);
-void printEmailById(int emailId, char* username, int userIndexInDB, int clientSocket, userDB* userdb);
-
+void printEmailById(int emailId, int userIndexInDB, int clientSocket, userDB* userdb);
+void deleteEmailById(int emailId, int userIndexInDB, userDB* userdb);
+void insertEmailToDB(char* username, int userCount, int clientSocket, userDB* userdb);
 
 int main(int argc, char** argv) {
 
@@ -71,7 +73,7 @@ printf("Print 1\n");
 		printf("Error on opening socket: %s\n",strerror(errno));
 		return -1;
 	}
-
+	int recvLen,bindCheck,listenCheck;
 	struct sockaddr_in sockAddr;
 	sockAddr.sin_family = AF_INET;
 	if (argc==3)
@@ -87,14 +89,14 @@ printf("Print 1\n");
 
 	inet_aton("127.0.0.1", &sockAddr.sin_addr);
 
-	int bindCheck = bind(serverSocket,(struct sockaddr*) &sockAddr,sizeof(sockAddr));
+	bindCheck = bind(serverSocket,(struct sockaddr*) &sockAddr,sizeof(sockAddr));
 	if (bindCheck <0)
 	{
 		printf("Error on binding socket: %s\n",strerror(errno));
 		return -1;
 	}
 
-	int listenCheck = listen(serverSocket,NUM_OF_CLIENTS);
+	listenCheck = listen(serverSocket,NUM_OF_CLIENTS);
 	if (listenCheck <0)
 	{
 		printf("Error listening to socket: %s\n",strerror(errno));
@@ -106,7 +108,8 @@ printf("Print 3\n");
 	const char delimTab[2] = "\t";
 
 
-	int clientLen = sizeof(sockAddr);	
+	int clientLen = sizeof(sockAddr);
+	int* lenSent;
 printf("Print 4\n");
 	while(1)
 	{
@@ -117,7 +120,7 @@ printf("Print 4.5\n");
 		printf("Error accepting client socket: %s\n",strerror(errno));
 		return -1;
 		}
-		int* lenSent;
+
 		sendall(clientSocket,"Hey! I'm the coolest email server.",lenSent);
 printf("Print 5\n");
 		int retries = 5;
@@ -125,9 +128,10 @@ printf("Print 5\n");
 		char username[MAX_USERNAME];
 		char userPass[MAX_PASSWORD];
 
+		//Let the client try and connect for 5 times before disconnecting
 		while (retries>0)
 		{
-			int recvLen = recv(clientSocket,&userCred,MAX_USERNAME+MAX_PASSWORD,0);
+			recvLen = recvall(clientSocket,&userCred,lenSent);
 			if (recvLen <0)
 				{
 					printf("Error receiving client message: %s\n",strerror(errno));
@@ -152,15 +156,16 @@ printf("Print 5\n");
 		sendall(clientSocket,"Connected to server",lenSent);
 
 		char msg[MAX_LEN];
-		int recvLen = recv(clientSocket,&msg,MAX_LEN,0);
-			if (recvLen <0)
-				{
-					printf("Error receiving client message: %s\n",strerror(errno));
-					return -1;
-				}
+		recvLen = recvall(clientSocket,&msg,lenSent);
+		if (recvLen <0)
+		{
+			printf("Error receiving client message: %s\n",strerror(errno));
+			return -1;
+		}
 
 
    		char *userCmd = strtok(msg, delim);
+   		int emailId = atoi(strtok(msg, delim));
 
 		while(strcmp(userCmd,"QUIT"))
 		{
@@ -170,24 +175,16 @@ printf("Print 5\n");
 			}
 			else if(strcmp(userCmd,"GET_MAIL"))
 			{
-				int emailId = atoi(strtok(msg, delim));
-				printEmailById(emailId,username,getUserIndexInDB(userdb,*userCount,username),clientSocket,userdb);
+				printEmailById(emailId,getUserIndexInDB(userdb,*userCount,username),clientSocket,userdb);
 			}
 			else if(strcmp(userCmd,"DELETE_MAIL"))
 			{
-
+				deleteEmailById(emailId,getUserIndexInDB(userdb,*userCount,username),userdb);
 			}
 			else if(strcmp(userCmd,"COMPOSE"))
 			{
-
+				insertEmailToDB(username, userCount, clientSocket, userdb);
 			}
-
-			int recvLen = recv(clientSocket,&msg,MAX_LEN,0);
-			if (recvLen <0)
-				{
-					printf("Error receiving client message: %s\n",strerror(errno));
-					return -1;
-				}
 		}
 
 		close(clientSocket);
@@ -211,7 +208,7 @@ bool onlyNumbers(char* s){
 	return true;
 }
 
-//CREDIT: taken from recitation
+//CREDIT: function taken from recitation
 //returns -1 on failure, 0 on success, and len is number of bytes sent
 int sendall (int s, char *buf , int *len)
 {
@@ -228,6 +225,21 @@ int sendall (int s, char *buf , int *len)
 	}
 	*len = total;
 	return n == -1 ? -1:0;
+}
+
+int recvall (int s, char *buf, int *len)
+{
+	int total = 0; /* how many bytes we've received */
+	int bytesleft = *len; /* how many we have left to receive */
+	int n;
+	while(total < *len) {
+	n = recv(s, buf+total, bytesleft, 0);
+	if (n == -1) { break; }
+	total += n;
+	bytesleft -= n;
+	}
+	*len = total; /* return number actually sent here */
+	return n == -1 ? -1:0; /*-1 on failure, 0 on success */
 }
 
 bool validateUserCred(char* filePath,char* userCred)
@@ -321,7 +333,7 @@ void printEmails(char* username, int userIndexInDB, int clientSocket, userDB* us
 	}
 }
 
-void printEmailById(int emailId, char* username, int userIndexInDB, int clientSocket, userDB* userdb)
+void printEmailById(int emailId, int userIndexInDB, int clientSocket, userDB* userdb)
 {
 	char emailLine[MAX_CONTENT+MAX_USERNAME*TOTAL_TO+MAX_SUBJECT+MAX_USERNAME+10];
 	
@@ -333,8 +345,16 @@ void printEmailById(int emailId, char* username, int userIndexInDB, int clientSo
 	email* userEmails = userdb[userIndexInDB].emails;
 	int* lenSent;
 	
-	
-	
+	sprintf(emailUsername,"From: %s\n",userEmails[emailId].from);
+	sprintf(emailTo,"To: %s\n",userEmails[emailId].to);
+	sprintf(emailSubject,"Subject: %s\n",userEmails[emailId].subject);
+	sprintf(emailContent,"Content: %s\n",userEmails[emailIdi].content);
+
+	sprintf(emailLine,"%s%s%s%s",emailUsername,emailTo,emailSubject,emailContent);
+
+	sendall(clientSocket,emailLine,lenSent);
+
+	/*
 	for (int i ; i<MAXMAILS; i++)
 	{
 		if (userEmails[i].ID == emailId)
@@ -351,11 +371,92 @@ void printEmailById(int emailId, char* username, int userIndexInDB, int clientSo
 		
 		break;	
 		}
-		
-		
 	}
+	*/
 }
 
+void deleteEmailById(int emailId, int userIndexInDB, userDB* userdb)
+{
+	free(userdb[userIndexInDB].emails[emailId]);
+	/*
+	email* userEmails = userdb[userIndexInDB].emails;
+	for (int i ; i<MAXMAILS; i++)
+	{
+		if (userEmails[i].ID == emailId)
+		{
+			free(userdb[userIndexInDB].emails[i]);
+			break;
+		}
+	}
+	*/
+}
+
+void insertEmailToDB(char* username, int userCount, int clientSocket, userDB* userdb)
+{
+	char emailSubject[MAX_SUBJECT];//= (char*) malloc(MAX_SUBJECT*sizeof(char));
+	char emailTo[MAX_USERNAME*TOTAL_TO+20];
+	char emailContent[MAX_CONTENT];
+	char usersEmailIsSentTo[TOTAL_TO][MAX_USERNAME];
+
+	email incomingEmail = (email) malloc(sizeof(email));
+	int* lenSent;
+
+	int recvLen = recvall(clientSocket, &emailTo, lenSent);
+	if (recvLen <0)
+	{
+		printf("Error receiving client message: %s\n",strerror(errno));
+		return -1;
+	}
+	strcpy(incomingEmail.to,emailTo);
+	strcpy(incomingEmail.from,username);
+
+	const char delim[2] = ",";
+	char* recipient = strtok(emailTo, delim);
+
+	int count;
+
+	//Getting all the users the email was sent to, and inserting them into an array
+	while(recipient != NULL)
+	{
+		usersEmailIsSentTo[count] = recipient;
+		recipient = strtok(emailTo, delim);
+		count++;
+	}
+
+	recvLen = recvall(clientSocket, &emailSubject, lenSent);
+	if (recvLen <0)
+	{
+		printf("Error receiving client message: %s\n",strerror(errno));
+		return -1;
+	}
+
+	strcpy(incomingEmail.subject,emailSubject);
+
+	recvLen = recvall(clientSocket, &emailContent, lenSent);
+	if (recvLen <0)
+	{
+		printf("Error receiving client message: %s\n",strerror(errno));
+		return -1;
+	}
+
+	strcpy(incomingEmail.content,emailContent);
+
+	//Go over all the users in the db
+	for (int i ; i<userCount; i++)
+	{
+		//Go over all the users the email was sent to
+		for (int j; j<count ; j++)
+		{
+			//Find a match between the arrays
+			if (!strcmp(userdb[i].name,usersEmailIsSentTo[j]))
+			{
+				userdb[i].emails[userdb->numOfEmails] = incomingEmail;
+				(userdb->numOfEmails)++;
+				break;
+			}
+		}
+	}
+}
 
 int getUserIndexInDB(userDB* userdb,int userCnt,char* username)
 {
