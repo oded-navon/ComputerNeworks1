@@ -450,12 +450,16 @@ void insertEmailToDB(char* username, int userCount, int clientSocket, userDB* us
 			//Find a match between the arrays
 			if (!strcmp(userdb[i].name,usersEmailIsSentTo[j]))
 			{
+				//Insert the email to the emails array of all the users it was sent to
 				userdb[i].emails[userdb->numOfEmails] = incomingEmail;
 				(userdb->numOfEmails)++;
 				break;
 			}
 		}
 	}
+
+	sendall(clientSocket,"Mail sent\n",lenSent);
+
 }
 
 int getUserIndexInDB(userDB* userdb,int userCnt,char* username)
